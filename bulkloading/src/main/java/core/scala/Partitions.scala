@@ -3,7 +3,12 @@ package core.scala
 object Partitions {
 
   /**
-   *
+   * gopt partitioning
+   * gopt(i) := min{𝑏≤𝑗≤𝐵}{gopt(i-j) + Area(MBR(𝑝𝑖−𝑗+1,𝑖))} 
+   * 
+   *  
+   * 
+   * TODO: different optimizations, store mbrs in DP costs array 
    */
   def computePartition(rectangles: Array[RectangleTuple], b: Int, B: Int, costFunction: RectangleTuple => Double): Bucket = {
     val buckets: Array[Bucket] = new Array(rectangles.length)
@@ -56,9 +61,8 @@ object Partitions {
     buckets(buckets.length - 1)
   }
 
-
   /**
-   *
+   * reverse traversal for a best cost partitioning
    */
   def getIndexArray(headBucket: Bucket): Array[Int] = {
     val  array: Array[Int] = new Array(headBucket.size)
@@ -69,14 +73,21 @@ object Partitions {
 		}
 		array
   }
+  
+  def costFunctionArea(mbr : RectangleTuple) : Double = {
+    //TODO
+    0
+  }
 
 }
 /**
- *
+ * simple pojo class to store costs for DP
+ * 
+ * //TODO can be extended with a MBR information
  */
 class Bucket(val cost: Double, val start: Int, val end: Int, var size: Int = 0, val pred: Bucket = null)
 /**
- *
+ * simple pojo class to store MBRs
  */
 class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable {
   require(l.size == r.size, "left and right point should have same dimension")
