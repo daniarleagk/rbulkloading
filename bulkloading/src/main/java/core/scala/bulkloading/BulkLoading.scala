@@ -8,7 +8,16 @@ import org.apache.spark.TaskContext
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
-
+/**
+ * 
+ * Sort based bulk loading of R tree using dynamic programming scheme 
+ *  
+ * @see  D Achakeev, B Seeger and P Widmayer:
+ * "Sort-based query-adaptive loading of R-trees" in CIKM 2012  
+ * 
+ * 
+ * 
+ */
 object BulkLoading {
 
   /**
@@ -17,8 +26,11 @@ object BulkLoading {
    */
   def bulkLoad(rootDirectory: String, sc: SparkContext, rectangles: RDD[RectangleTuple], sfc: RectangleTuple => Long, numPartitions: Int, b: Int, B: Int, maxBatchSize: Int): Unit = {
     var level = 0;
-    // sort and process input rectangles process non leaf levels
-    rectangles.map(x => (sfc(x), (Option.empty[MBRInfo], x))).sortByKey(true, numPartitions).foreachPartition(partitionsUDF(level, b: Int, B: Int, maxBatchSize, rootDirectory))
+    // sort and process input rectangles process  for leaf level
+    // output sorted set of rectanges and index level MBRS with additional information:  partitionId, sequence number (rank)
+   // value: number of rectangles that belongs to a MBR and MBR
+    rectangles.map(x => (sfc(x),  x)).sortByKey(true, numPartitions).foreachPartition(partitionsUDF(level, b: Int, B: Int, maxBatchSize, rootDirectory))
+    
     while (getNumberOfGeneratedObjects(rootDirectory, level) > B) {
       //partitionsUDF
       // Read from temporary file and create rdd
@@ -61,6 +73,13 @@ object BulkLoading {
   }
 
   /**
+   * 
+   * generic "for each" function
+   * 
+   * for leaf level it produces three files. 
+   * 
+   * for index level two files the next index level and partitioning information file 
+   *  
    * for each partition function level
    *
    * we save three files
@@ -77,8 +96,13 @@ object BulkLoading {
    * // write in binary format
    * // write infos about partitions partition number and number of prodced MBRs
    * // this information is used to compute a
+   * 
+   * 
+   * K is a generic key for a leaf level it is a Space Filling Curve Value
+   *  for a index level it is a tuple consisting of partiotion if and sequence number in this partition
+   * 
    */
-  def partitionsUDF(level: Int, b: Int, B: Int, maxBatchSize: Int, rootDirectory: String)(iter: Iterator[(Long, (Option[MBRInfo], core.scala.RectangleTuple))]): Unit = {
+  def partitionsUDF[K](level: Int, b: Int, B: Int, maxBatchSize: Int, rootDirectory: String)(iter: Iterator[(K, core.scala.RectangleTuple)]): Unit = {
     val partid = TaskContext.getPartitionId() // take information from a spark task context
     val pathRootDirectory = new Path(rootDirectory);
     val fs = pathRootDirectory.getFileSystem(new Configuration())
@@ -90,8 +114,9 @@ object BulkLoading {
     // group with a max
     val bufferedIterator = iter grouped maxBatchSize
     while (bufferedIterator.hasNext) {
-      val array = bufferedIterator.next().map(pairWithTuple => pairWithTuple._2._2).toArray
-      // minimize area
+      // get rectangles array
+      val array = bufferedIterator.next().map(pairWithTuple => pairWithTuple._2).toArray
+      // minimize area dynamic programming 
       val bestCostPartitioningRoot = Partitions.computePartition(array, b, B, Partitions.costFunctionArea)
       val bestCostPartitioning = Partitions.getIndexArray(bestCostPartitioningRoot)
       // compute mbrs and write all informations
@@ -100,7 +125,3 @@ object BulkLoading {
   }
 
 }
-/**
- * single information stored after processing the first level
- */
-class MBRInfo(partitionId: Int, localId: Int, size: Int) extends Tuple3[Int, Int, Int](partitionId, localId, size)
