@@ -1,5 +1,9 @@
 package core.scala
 
+import org.apache.hadoop.io.Writable
+import java.io.DataOutput
+import java.io.DataInput
+
 object Partitions {
 
   /**
@@ -89,11 +93,15 @@ class Bucket(val cost: Double, val start: Int, val end: Int, var size: Int = 0, 
 /**
  * simple pojo class to store MBRs
  */
-class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable {
+class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable with Writable {
   require(l.size == r.size, "left and right point should have same dimension")
-  def left = l
-  def right = r
-  val dimension = l.size
+  var left = l
+  var right = r
+  var dimension = l.size
+  /**
+   * empty constructor
+   */
+  def this() = this(Array(), Array())
   /*
    * 
    */
@@ -112,5 +120,41 @@ class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable {
     }
     this
   }
+  /**
+   * 
+   */
+  override def write(out : DataOutput): Unit={
+    // write left point
+    println(left.length)
+    out.writeInt(left.length)
+    for(i <- 0 until left.length){
+      out.writeDouble(left(i))
+      println(left(i))
+    }
+    for(i <- 0 until right.length){
+      out.writeDouble(right(i))
+        println(right(i))
+    }
+    //TODO 
+  }
+  /**
+   * 
+   */
+  override def readFields(in : DataInput): Unit={
+    val dimension = in.readInt()
+    println(dimension)
+    val leftP =  new  Array[Double](dimension)
+    val rightP = new Array[Double](dimension)
+    for (i <- 0 until dimension){
+      leftP(i) = in.readDouble()
+      println(leftP(i))
+    }
+    for (i <- 0 until dimension){
+      rightP(i) = in.readDouble()
+    }
+    left = leftP
+    right = rightP
+  }
+  
 
 }
