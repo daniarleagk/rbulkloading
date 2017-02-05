@@ -12,7 +12,7 @@ object Partitions {
    * 
    *  
    * 
-   * TODO: different optimizations, store mbrs in DP costs array 
+   * XXX: different optimizations, store mbrs in DP costs array 
    */
   def computePartition(rectangles: Array[RectangleTuple], b: Int, B: Int, costFunction: RectangleTuple => Double): Bucket = {
     val buckets: Array[Bucket] = new Array(rectangles.length)
@@ -78,9 +78,11 @@ object Partitions {
 		array
   }
   
+  /**
+   * area cost function
+   */
   def costFunctionArea(mbr : RectangleTuple) : Double = {
-    //TODO
-    0
+    (mbr.left zip mbr.right).map(t => (t._2 - t._1).abs).reduceLeft(_*_)
   }
 
 }
@@ -93,7 +95,7 @@ class Bucket(val cost: Double, val start: Int, val end: Int, var size: Int = 0, 
 /**
  * simple pojo class to store MBRs
  */
-class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable with Writable {
+class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable with Writable with Cloneable{
   require(l.size == r.size, "left and right point should have same dimension")
   var left = l
   var right = r
@@ -124,18 +126,13 @@ class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable wi
    * 
    */
   override def write(out : DataOutput): Unit={
-    // write left point
-    println(left.length)
     out.writeInt(left.length)
     for(i <- 0 until left.length){
       out.writeDouble(left(i))
-      println(left(i))
     }
     for(i <- 0 until right.length){
       out.writeDouble(right(i))
-        println(right(i))
     }
-    //TODO 
   }
   /**
    * 
@@ -147,13 +144,21 @@ class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable wi
     val rightP = new Array[Double](dimension)
     for (i <- 0 until dimension){
       leftP(i) = in.readDouble()
-      println(leftP(i))
     }
     for (i <- 0 until dimension){
       rightP(i) = in.readDouble()
     }
     left = leftP
     right = rightP
+  }
+  
+  
+  override def clone(): RectangleTuple ={
+    val leftArray = new Array[Double](left.size)
+    val rightArray = new Array[Double](right.size)
+    Array.copy(left,0, leftArray, 0, leftArray.size)
+    Array.copy(right,0, rightArray, 0, rightArray.size)
+    new RectangleTuple(leftArray, rightArray)
   }
   
 
