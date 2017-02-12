@@ -18,6 +18,10 @@ import org.apache.hadoop.io.Writable
 import java.io.DataOutput
 import java.io.DataInput
 import org.apache.hadoop.io.NullWritable
+import org.apache.hadoop.fs.LocatedFileStatus
+import scala.util.matching.Regex
+import org.jboss.netty.channel.ReceiveBufferSizePredictorFactory
+import org.apache.spark.util.LongAccumulator
 
 /**
  *
@@ -44,38 +48,60 @@ object BulkLoading {
    */
   def bulkLoad[K <: Writable](rootDirectory: String, sc: SparkContext, rectangles: RDD[(K, RectangleTuple)], sfc: RectangleTuple => Long, numPartitions: Int, b: Int, B: Int, maxBatchSize: Int)(implicit c: ClassTag[K]): Unit = {
     var level = 0;
-    // sort and process input rectangles process  for leaf level
-    // output sorted set of rectanges and index level MBRS with additional information:  partitionId, sequence number (rank)
-    // value: number of rectangles that belongs to a MBR and MBR
-    rectangles.map(x => (sfc(x._2), x)).sortByKey(true, numPartitions).map(y => y._2).foreachPartition(partitionsUDF[K](level, b: Int, B: Int, maxBatchSize, rootDirectory))
-
-    while (getNumberOfGeneratedObjects(rootDirectory, level) > B) {
-      //partitionsUDF
-      // Read from temporary file and create rdd
-      // since data has been already sorted use total order partitioner 
+    val accumulator:LongAccumulator = sc.longAccumulator("levelCounter")
+    rectangles.map(x => (sfc(x._2), x)).sortByKey(true, numPartitions).map(y => y._2).foreachPartition(partitionsUDF[K](accumulator,level, b: Int, B: Int, maxBatchSize, rootDirectory))
+    var createdIndexEntries: Long = accumulator.value
+    while (createdIndexEntries > B) {
+      // Read from temporary file and create rdd, since data has been already sorted use total order partitioner 
       // compute input for range partitioner
-      // since each partitionsUDF 
       val numberOfPartitions = {
-        // to compute 
-        // read 
+        //TODO
         // compute desired number of tasks/partitions one spark task >= maxBatchSize
+        10
       }
-      //      val rangePartioner = computePartitons( , rangePairs: RDD[(Int, Int)]) 
+      val stringLevel = "%02d".format(level)
+      val MetaInfoRegEx: Regex = ("meta_" + stringLevel).r
+      val metaRDD = getFiles(rootDirectory, sc, MetaInfoRegEx, classOf[PartitionKeyTuple], classOf[NullWritable]).map(pair => pair._1)
+      val rangePartioner = computePartitions(numberOfPartitions, metaRDD)
+      val RegEx: Regex = ("mbr_" + stringLevel).r
+      val indexLevelInput : RDD[(PartitionKeyTuple, RectangleTuple)] = getFiles(rootDirectory, sc, RegEx,classOf[PartitionKeyTuple], classOf[RectangleTuple])
+      val nextLevelAccumulator = sc.longAccumulator("acc_"+ "%02d".format(level))
       level += 1;
+      // process next level
+      indexLevelInput.partitionBy(rangePartioner).foreachPartition(partitionsUDF(nextLevelAccumulator,level, b, B, maxBatchSize, rootDirectory))
+      createdIndexEntries = nextLevelAccumulator.value
     }
   }
+  
   /**
-   * read information about how many MBR are generated
+   * 
    */
-  def getNumberOfGeneratedObjects(path: String, level: Int): Int = {
-    //TODO
-    // hadoop fs read meta data for a given level
-    0
+  def getFiles[K,V](rootDirectory: String, sc: SparkContext, regex  : Regex, k : Class[K] , v : Class[V] )   : RDD[(K,V)] = {
+    val pathRootDirectory = new Path(rootDirectory)
+    val fs: FileSystem = pathRootDirectory.getFileSystem(new Configuration())
+    val remoteIterator = fs.listFiles(pathRootDirectory, false)
+    var rdd: RDD[(K,V)] = null
+    while (remoteIterator.hasNext()) {
+      val status: LocatedFileStatus = remoteIterator.next()
+      val path: Path = status.getPath
+      val matchFileName = regex.findFirstIn(path.getName)
+      if (!matchFileName.isEmpty) {
+        if(rdd == null){
+          rdd = sc.sequenceFile(path.getName, k, v)
+        }else{
+          val nextRDD = sc.sequenceFile(path.getName, k, v)
+          rdd.union(nextRDD)
+        }
+      }
+    }
+    return rdd
   }
+
+ 
   /**
    * read partition information from the previous step  information
    */
-  def computePartitons(numberOfPartitions: Int, rangePairs: RDD[(Int, Int)]): Partitioner = {
+  def computePartitions(numberOfPartitions: Int, rangePairs: RDD[PartitionKeyTuple]): Partitioner = {
     val part = new Partitioner {
 
       override def numPartitions: Int = {
@@ -119,7 +145,7 @@ object BulkLoading {
    *  for a index level it is a tuple consisting of partiotion if and sequence number in this partition
    *
    */
-  def partitionsUDF[K](level: Int, b: Int, B: Int, maxBatchSize: Int, rootDirectory: String)(iter: Iterator[(K, core.scala.RectangleTuple)])(implicit c: ClassTag[K]): Unit = {
+  def partitionsUDF[K](accumulator:LongAccumulator, level: Int, b: Int, B: Int, maxBatchSize: Int, rootDirectory: String)(iter: Iterator[(K, core.scala.RectangleTuple)])(implicit c: ClassTag[K]): Unit = {
     val partid: Int = TaskContext.getPartitionId() // take information from a spark task context
     val pathRootDirectory = new Path(rootDirectory);
     val fs = pathRootDirectory.getFileSystem(new Configuration())
@@ -166,12 +192,13 @@ object BulkLoading {
           }
           index += numberOfRectangles
           pathOutPutNextLevelWriter.append(new PartitionKeyTuple(partid, rank), indexMBR)
-          rank += 1;
+          rank += 1
+          accumulator.add(1)
         }
       }
       pathOutPutMetaWriter.append(new PartitionKeyTuple(partid, rank - 1), NullWritable.get()) // XXX can we use additionally MBR over the whole partitions :-) ???
     } finally {
-      if(level == 0){
+      if (level == 0) {
         pathOutPutSortedRecsWriter.close();
       }
       pathOutPutNextLevelWriter.close()
