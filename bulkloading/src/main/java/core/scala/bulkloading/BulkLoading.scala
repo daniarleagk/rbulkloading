@@ -20,7 +20,6 @@ import java.io.DataInput
 import org.apache.hadoop.io.NullWritable
 import org.apache.hadoop.fs.LocatedFileStatus
 import scala.util.matching.Regex
-import org.jboss.netty.channel.ReceiveBufferSizePredictorFactory
 import org.apache.spark.util.LongAccumulator
 
 /**
