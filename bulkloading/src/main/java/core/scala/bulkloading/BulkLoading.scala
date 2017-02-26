@@ -36,6 +36,14 @@ import org.apache.spark.util.LongAccumulator
  *
  */
 object BulkLoading {
+  
+  /**
+   * if universe is not known in advance, pre step
+   */
+  def  computeUniverse[K]( rectangles: RDD[(K, RectangleTuple)]): RectangleTuple ={
+    //TODO
+    null
+  }
 
   /**
    *
@@ -45,10 +53,10 @@ object BulkLoading {
    *
    * main bulk-loading method
    */
-  def bulkLoad[K <: Writable](rootDirectory: String, sc: SparkContext, rectangles: RDD[(K, RectangleTuple)], sfc: RectangleTuple => Long, numPartitions: Int, b: Int, B: Int, maxBatchSize: Int)(implicit c: ClassTag[K]): Unit = {
+  def bulkLoad[K <: Writable](rootDirectory: String, sc: SparkContext, rectangles: RDD[(K, RectangleTuple)], sfc: RectangleTuple => Long, numPartitions: Int, b: Int, B: Int, maxBatchSize: Int, k : Class[K]): Unit = {
     var level = 0;
     val accumulator:LongAccumulator = sc.longAccumulator("levelCounter")
-    rectangles.map(x => (sfc(x._2), x)).sortByKey(true, numPartitions).map(y => y._2).foreachPartition(partitionsUDF[K](accumulator,level, b: Int, B: Int, maxBatchSize, rootDirectory))
+    rectangles.map(x => (sfc(x._2), x)).sortByKey(true, numPartitions).map(y => y._2).foreachPartition(partitionsUDF[K](k, accumulator,level, b: Int, B: Int, maxBatchSize, rootDirectory))
     var createdIndexEntries: Long = accumulator.value
     while (createdIndexEntries > B) {
       // Read from temporary file and create rdd, since data has been already sorted use total order partitioner 
@@ -67,7 +75,7 @@ object BulkLoading {
       val nextLevelAccumulator = sc.longAccumulator("acc_"+ "%02d".format(level))
       level += 1;
       // process next level
-      indexLevelInput.partitionBy(rangePartioner).foreachPartition(partitionsUDF(nextLevelAccumulator,level, b, B, maxBatchSize, rootDirectory))
+      indexLevelInput.partitionBy(rangePartioner).foreachPartition(partitionsUDF(classOf[PartitionKeyTuple], nextLevelAccumulator,level, b, B, maxBatchSize, rootDirectory))
       createdIndexEntries = nextLevelAccumulator.value
     }
   }
@@ -144,7 +152,7 @@ object BulkLoading {
    *  for a index level it is a tuple consisting of partiotion if and sequence number in this partition
    *
    */
-  def partitionsUDF[K](accumulator:LongAccumulator, level: Int, b: Int, B: Int, maxBatchSize: Int, rootDirectory: String)(iter: Iterator[(K, core.scala.RectangleTuple)])(implicit c: ClassTag[K]): Unit = {
+  def partitionsUDF[K](k : Class[K] , accumulator:LongAccumulator, level: Int, b: Int, B: Int, maxBatchSize: Int, rootDirectory: String)(iter: Iterator[(K, core.scala.RectangleTuple)]): Unit = {
     val partid: Int = TaskContext.getPartitionId() // take information from a spark task context
     val pathRootDirectory = new Path(rootDirectory);
     val fs = pathRootDirectory.getFileSystem(new Configuration())
@@ -164,7 +172,7 @@ object BulkLoading {
     if (level == 0) {
       pathOutPutSortedRecs = new Path(rootDirectory + "/rec_" + stringPartId) // sorted input path, only for level 0 
       fs.delete(pathOutPutSortedRecs, true)
-      pathOutPutSortedRecsWriter = SequenceFile.createWriter(conf, Writer.file(pathOutPutSortedRecs), Writer.keyClass(c.runtimeClass), Writer.valueClass(classOf[core.scala.RectangleTuple]))
+      pathOutPutSortedRecsWriter = SequenceFile.createWriter(conf, Writer.file(pathOutPutSortedRecs), Writer.keyClass(k), Writer.valueClass(classOf[core.scala.RectangleTuple]))
     }
     // main loop split in batches group with a max
     val bufferedIterator = iter grouped maxBatchSize

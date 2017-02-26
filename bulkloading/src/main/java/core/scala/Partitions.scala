@@ -99,7 +99,7 @@ class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable wi
   require(l.size == r.size, "left and right point should have same dimension")
   var left = l
   var right = r
-  var dimension = l.size
+  lazy val  dimension = left.size
   /**
    * empty constructor
    */
@@ -121,6 +121,26 @@ class RectangleTuple(l: Array[Double], r: Array[Double]) extends Serializable wi
       right(d) = right(d) max that.right(d)
     }
     this
+  }
+  /**
+   * 
+   */
+  def getCenter(): Array[Double] = {
+    val center = new Array[Double](left.size)
+    for ( i <- 0 until dimension){
+      center(i) = (right(i) - left(i))/2
+    }
+    center
+  }
+  /**
+   * 
+   */
+  def getSideLength(): Array[Double] = {
+    val sideLength = new Array[Double](left.size)
+    for(i <- 0 until dimension){
+      sideLength(i) = right(i) - left(i)
+    }
+    sideLength
   }
   /**
    * 
