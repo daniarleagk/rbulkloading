@@ -1,6 +1,7 @@
 package core.scala
 
 import org.apache.spark.rdd.RDD
+import org.apache.spark.rdd.PairRDDFunctions 
 import org.apache.spark.SparkContext
 import org.apache.spark.RangePartitioner
 import org.apache.spark.Partitioner
@@ -38,13 +39,34 @@ import org.apache.spark.util.LongAccumulator
 object BulkLoading {
   
   /**
-   * if universe is not known in advance, pre step
+   * Helper method computes a universe. This method can be used for normalization of input data
+   * 
+   * @return a universe of a rectangle data set
    */
-  def  computeUniverse[K]( rectangles: RDD[(K, RectangleTuple)]): RectangleTuple ={
-    //TODO
-    null
+  def  computeUniverse[K](rectangles: RDD[(K, RectangleTuple)]): RectangleTuple ={
+    rectangles.map(x => x._2).reduce( (leftTuple, rightTuple) => leftTuple.union(rightTuple))
   }
 
+ 
+  /**
+   * 
+   */
+  def bulkLoadSymmetricCyclicZOrderUnitCubeKeyFunction[K <: Writable](rootDirectory: String, sc: SparkContext,
+      rectangles: RDD[(K, RectangleTuple)], numPartitions: Int, b: Int, B: Int, maxBatchSize: Int, k : Class[K]): Unit={
+    bulkLoad(rootDirectory, sc, rectangles, SfcFunction.getSymmetricCyclicZOrderKeyFunctionNormalizedInput(), numPartitions, b, B, maxBatchSize, k )
+  }
+  
+  /**
+   * 
+   */
+  def bulkLoadSymmetricCyclicZOrderKeyFunction[K <: Writable](universe: RectangleTuple, rootDirectory: String, sc: SparkContext,
+      rectangles: RDD[(K, RectangleTuple)], numPartitions: Int, b: Int, B: Int, maxBatchSize: Int, k : Class[K]): Unit={
+    val universeSideLength = universe.getSideLength()
+    val sfc = SfcFunction.getSymmetricCyclicZOrderKeyFunction(universe, universeSideLength)
+    bulkLoad(rootDirectory, sc, rectangles, sfc, numPartitions, b, B, maxBatchSize, k )
+  }
+  
+  
   /**
    *
    * 1. strategy process one level at time for each partition write file and write meta file that contains partition information such as number of items and partition id.
@@ -232,11 +254,7 @@ object BulkLoading {
   }
 
   def main(args: Array[String]): Unit = {
-    val pairOne: RectangleTuple = new RectangleTuple(Array(1, 1), Array(2, 2))
-    val pairTwo: RectangleTuple = new RectangleTuple(Array(3, 3), Array(4, 4))
-    val p = new RectangleTuple()
-    val list = List((new LongWritable(1L), pairOne))
-    val path = new Path("file:/home/d/t")
+  
 
   }
 
